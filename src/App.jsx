@@ -1,4 +1,6 @@
 import Map from "./Map";
+import { Link } from 'react-router-dom';
+
 
 function App() {
   return (
@@ -14,27 +16,18 @@ function App() {
       </header>
 
       {/* 地図セクション */}
-      <main className="max-w-4xl mx-auto px-8 pb-12">
-        <div className="bg-white rounded-3xl shadow-xl p-6 mb-6">
-          <Map />
-        </div>
+<main className="max-w-4xl mx-auto px-8 pb-12">
+  <div className="bg-white rounded-3xl shadow-xl p-6 mb-6">
+    <Map />
+    <div className="text-center mt-4">
+      <Link to="/gallery">
+        <button className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition">
+          📸 ギャラリーを見る
+        </button>
+      </Link>
+    </div>
+  </div>
 
-        {/* 使い方カード */}
-        <div className="grid grid-cols-3 gap-4">
-          {[
-            { icon: '📍', title: 'スポット発見', desc: '地図上のピンをタップ', color: 'bg-pink-500' },
-            { icon: '📸', title: '写真撮影', desc: '現地で記念撮影', color: 'bg-orange-500' },
-            { icon: '🏆', title: 'コンプリート', desc: '全制覇を目指そう', color: 'bg-purple-500' },
-          ].map(({ icon, title, desc, color }, i) => (
-            <div key={i} className="bg-white rounded-2xl p-4 text-center shadow-lg">
-              <div className={`w-10 h-10 ${color} rounded-full flex items-center justify-center mx-auto mb-2`}>
-                <span className="text-white text-sm">{icon}</span>
-              </div>
-              <h3 className="font-bold text-gray-800 text-sm">{title}</h3>
-              <p className="text-xs text-gray-500 mt-1">{desc}</p>
-            </div>
-          ))}
-        </div>
       </main>
     </div>
   );
