@@ -161,33 +161,39 @@ export default function Map() {
     pins.forEach(({ lng, lat, address }, index) => {
       const isCompleted = completedSpots.includes(index);
 
-      const popupNode = document.createElement('div');
-      popupNode.innerHTML = `
-        <div style="font-size: 14px;">
-          <h3 style="margin: 0 0 8px 0; font-size: 16px;">${address}</h3>
-          ${
-            isCompleted
-              ? '<p style="color: green; margin: 0;">✅ 達成済み</p>'
-              : `<button style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
-          }
-          <button style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
-        </div>
-      `;
+      // ピンのポップアップ生成内
+const popupNode = document.createElement('div');
+popupNode.innerHTML = `
+  <div style="font-size: 14px;">
+    <h3 style="margin: 0 0 8px 0; font-size: 16px;">${address}</h3>
+    ${
+      isCompleted
+        ? `<p style="color: green; margin: 0;">✅ 達成済み</p>
+           <button style="margin-top: 8px; background: #ccc; color: black; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">❌ 達成を取り消す</button>`
+        : `<button style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
+    }
+    <button style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
+  </div>
+`;
 
-      if (!isCompleted) {
-        popupNode.querySelector('button')?.addEventListener('click', () => {
-          window.takePhoto?.(index);
-        });
-      }
-
-      const navButton = popupNode.querySelectorAll('button')[isCompleted ? 0 : 1];
-      navButton?.addEventListener('click', () => {
-        startNavigation([lng, lat]);
-        setTimeout(() => {
-          map.current?.getCanvas().focus();
-          document.querySelector('.mapboxgl-popup-close-button')?.click(); // 強制的にポップアップを閉じる
-        }, 100);
-      });
+// 達成取り消しボタン処理追加
+if (isCompleted) {
+  const cancelButton = popupNode.querySelectorAll('button')[0];
+  cancelButton?.addEventListener('click', () => {
+    setCompletedSpots(prev => prev.filter(i => i !== index));
+    setPhotos(prev => {
+      const newPhotos = { ...prev };
+      delete newPhotos[index];
+      return newPhotos;
+    });
+    map.current?.getCanvas().focus();
+    document.querySelector('.mapboxgl-popup-close-button')?.click(); // ポップアップ閉じる
+  });
+} else {
+  popupNode.querySelector('button')?.addEventListener('click', () => {
+    window.takePhoto?.(index);
+  });
+}
 
       new mapboxgl.Marker({ color: isCompleted ? '#ee008c' : '#00cc55' })
         .setLngLat([lng, lat])
