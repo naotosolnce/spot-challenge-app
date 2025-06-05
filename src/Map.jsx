@@ -1,14 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-
-// 既存のimportの少し下あたりに追加
-
 import { getFirestore, collection, addDoc, Timestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-
-// Firebase初期化済みのappがあるなら
-import { app } from './firebase';  // Firebase初期化ファイルのパスに合わせて変えてください
+import { app } from './firebase';
 
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -28,7 +23,6 @@ async function addAchievementData(achievement) {
   }
 }
 
-
 mapboxgl.accessToken = 'pk.eyJ1IjoibnNvdG8iLCJhIjoiY21iaThvYTM0MDNrazJsczg2azNpNHY0MyJ9.lXDqV1BT_xd_FkjlOTFzGg';
 
 export default function Map() {
@@ -45,44 +39,40 @@ export default function Map() {
   const csvUrl = '/output_with_coords.csv';
 
   const handlePhotoSelected = async (event) => {
-  const file = event.target.files[0];
-  if (!file || currentPhotoIndex === null) return;
+    const file = event.target.files[0];
+    if (!file || currentPhotoIndex === null) return;
 
-  const reader = new FileReader();
-  reader.onload = async () => {
-    const base64 = reader.result;
-    setPhotos((prev) => ({ ...prev, [currentPhotoIndex]: base64 }));
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result;
+      setPhotos((prev) => ({ ...prev, [currentPhotoIndex]: base64 }));
 
-    if (!completedSpots.includes(currentPhotoIndex)) {
-      setCompletedSpots(prev => [...prev, currentPhotoIndex]);
-    }
+      if (!completedSpots.includes(currentPhotoIndex)) {
+        setCompletedSpots((prev) => [...prev, currentPhotoIndex]);
+      }
 
-    // ここでFirestoreにデータ保存
-    const user = auth.currentUser;
-    if (!user) {
-      alert('ログインしてください');
-      return;
-    }
+      const user = auth.currentUser;
+      if (!user) {
+        alert('ログインしてください');
+        return;
+      }
 
-    try {
-      await addAchievementData({
-        userId: user.uid,
-        nickname: user.displayName || '名無し',
-        spotIndex: currentPhotoIndex,
-        address: pins[currentPhotoIndex].address,
-        timestamp: new Date(),
-      });
-    } catch (error) {
-      console.error('Firestore保存エラー', error);
-    }
+      try {
+        await addAchievementData({
+          userId: user.uid,
+          nickname: user.displayName || '名無し',
+          spotIndex: currentPhotoIndex,
+          address: pins[currentPhotoIndex].address,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        console.error('Firestore保存エラー', error);
+      }
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
   };
-  reader.readAsDataURL(file);
 
-  event.target.value = '';
-};
-
-
-  // 地図初期化 + 現在地ウォッチ + 向き取得 + ピン読込
   useEffect(() => {
     if (map.current) return;
 
@@ -94,7 +84,7 @@ export default function Map() {
     });
 
     map.current.on('style.load', () => {
-      map.current.getStyle().layers?.forEach(layer => {
+      map.current.getStyle().layers?.forEach((layer) => {
         if (layer.type === 'symbol' && layer.layout?.['text-field']) {
           map.current.setLayoutProperty(layer.id, 'text-field', [
             'coalesce',
@@ -141,12 +131,16 @@ export default function Map() {
     }
 
     fetch(csvUrl)
-      .then(res => res.text())
-      .then(text => {
-        const data = text.trim().split('\n').slice(1).map(line => {
-          const [address, lng, lat] = line.split(',');
-          return { address, lng: parseFloat(lng), lat: parseFloat(lat) };
-        });
+      .then((res) => res.text())
+      .then((text) => {
+        const data = text
+          .trim()
+          .split('\n')
+          .slice(1)
+          .map((line) => {
+            const [address, lng, lat] = line.split(',');
+            return { address, lng: parseFloat(lng), lat: parseFloat(lat) };
+          });
         setPins(data);
       });
 
@@ -188,10 +182,10 @@ export default function Map() {
       }
 
       const bounds = new mapboxgl.LngLatBounds();
-      routeGeoJSON.geometry.coordinates.forEach(coord => bounds.extend(coord));
+      routeGeoJSON.geometry.coordinates.forEach((coord) => bounds.extend(coord));
       map.current.fitBounds(bounds, { padding: 50 });
 
-      map.current?.popups?.forEach(popup => popup.remove()); // 🔧 ポップアップを閉じる
+      map.current?.popups?.forEach((popup) => popup.remove());
     } catch (err) {
       console.error('ルート取得エラー', err);
       alert('ルート取得に失敗しました。');
@@ -201,48 +195,47 @@ export default function Map() {
   useEffect(() => {
     if (!map.current || pins.length === 0) return;
 
-    document.querySelectorAll('.mapboxgl-marker').forEach(marker => {
+    document.querySelectorAll('.mapboxgl-marker').forEach((marker) => {
       if (marker !== userMarkerRef.current?.getElement()) marker.remove();
     });
 
     pins.forEach(({ lng, lat, address }, index) => {
       const isCompleted = completedSpots.includes(index);
 
-      // ピンのポップアップ生成内
-const popupNode = document.createElement('div');
-popupNode.innerHTML = `
-  <div style="font-size: 14px;">
-    <h3 style="margin: 0 0 8px 0; font-size: 16px;">${address}</h3>
-    ${
-      isCompleted
-        ? `<p style="color: green; margin: 0;">✅ 達成済み</p>
-           <button style="margin-top: 8px; background: #ccc; color: black; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">❌ 達成を取り消す</button>`
-        : `<button style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
-    }
-    <button style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
-  </div>
-`;
+      const popupNode = document.createElement('div');
+      popupNode.innerHTML = `
+        <div style="font-size: 14px;">
+          <h3 style="margin: 0 0 8px 0; font-size: 16px;">${address}</h3>
+          ${
+            isCompleted
+              ? `<p style="color: green; margin: 0;">✅ 達成済み</p>
+                 <button style="margin-top: 8px; background: #ccc; color: black; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">❌ 達成を取り消す</button>`
+              : `<button style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
+          }
+          <button style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
+        </div>
+      `;
 
-// 達成取り消しボタン処理追加
-if (isCompleted) {
-  const cancelButton = popupNode.querySelectorAll('button')[0];
-  cancelButton?.addEventListener('click', () => {
-    setCompletedSpots(prev => prev.filter(i => i !== index));
-    setPhotos(prev => {
-      const newPhotos = { ...prev };
-      delete newPhotos[index];
-      return newPhotos;
-    });
-    map.current?.getCanvas().focus();
-    document.querySelector('.mapboxgl-popup-close-button')?.click(); // ポップアップ閉じる
-  });
-} else {
-  popupNode.querySelector('button')?.addEventListener('click', () => {
-    window.takePhoto?.(index);
-  });
-}
+      if (isCompleted) {
+        const cancelButton = popupNode.querySelectorAll('button')[0];
+        cancelButton?.addEventListener('click', () => {
+          setCompletedSpots((prev) => prev.filter((i) => i !== index));
+          setPhotos((prev) => {
+            const newPhotos = { ...prev };
+            delete newPhotos[index];
+            return newPhotos;
+          });
+          map.current?.getCanvas().focus();
+          document.querySelector('.mapboxgl-popup-close-button')?.click();
+        });
+      } else {
+        popupNode.querySelector('button')?.addEventListener('click', () => {
+          window.takePhoto?.(index);
+        });
+      }
 
-      new mapboxgl.Marker({ color: isCompleted ? '#ee008c' : '#00cc55' })
+      const markerColor = isCompleted ? '#ee008c' : '#00cc55';
+      new mapboxgl.Marker({ color: markerColor })
         .setLngLat([lng, lat])
         .setPopup(new mapboxgl.Popup({ offset: 25 }).setDOMContent(popupNode))
         .addTo(map.current);
@@ -266,25 +259,26 @@ if (isCompleted) {
   }, [photos]);
 
   useEffect(() => {
-  window.takePhoto = (index) => {
-    setCurrentPhotoIndex(index);
-    fileInputRef.current?.click(); // カメラ起動
-  };
-
-  return () => delete window.takePhoto;
-}, []);
-
+    window.takePhoto = (index) => {
+      setCurrentPhotoIndex(index);
+      fileInputRef.current?.click();
+    };
+    return () => delete window.takePhoto;
+  }, []);
 
   return (
-    <div className="relative w-full h-[500px] rounded-xl overflow-hidden">
+    <div className="relative w-full h-full rounded-xl overflow-hidden">
+      {/* map-container を親の flex-1 が支えているので h-full で画面残りすべてに広がる */}
       <div ref={mapContainer} className="w-full h-full" />
 
-      <div className="
-        absolute bottom-3 left-3 right-3
-        bg-white/90 backdrop-blur-sm
-        p-3 rounded-lg shadow-lg
-        z-50 flex items-center justify-between
-      ">
+      <div
+        className="
+          absolute bottom-3 left-3 right-3
+          bg-white/90 backdrop-blur-sm
+          p-3 rounded-lg shadow-lg
+          z-50 flex items-center justify-between
+        "
+      >
         <div className="flex items-center space-x-3">
           <div className="text-2xl">📸</div>
           <div>
@@ -294,24 +288,31 @@ if (isCompleted) {
             <div className="w-32 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className="h-full bg-green-500 transition-all duration-300"
-                style={{ width: `${pins.length ? (completedSpots.length / pins.length) * 100 : 0}%` }}
+                style={{
+                  width: `${
+                    pins.length ? (completedSpots.length / pins.length) * 100 : 0
+                  }%`,
+                }}
               />
             </div>
           </div>
         </div>
         <div className="text-sm font-bold text-green-600">
-          {pins.length ? Math.round((completedSpots.length / pins.length) * 100) : 0}%
+          {pins.length
+            ? Math.round((completedSpots.length / pins.length) * 100)
+            : 0}
+          %
         </div>
       </div>
-      <input
-  ref={fileInputRef}
-  type="file"
-  accept="image/*"
-  capture="environment"
-  style={{ display: 'none' }}
-  onChange={handlePhotoSelected}
-/>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: 'none' }}
+        onChange={handlePhotoSelected}
+      />
     </div>
   );
 }
