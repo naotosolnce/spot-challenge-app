@@ -1,36 +1,31 @@
+// src/Map.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { getFirestore, collection, addDoc, Timestamp } from 'firebase/firestore';
+import {
+  getFirestore,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  setDoc,
+  Timestamp
+} from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { app } from './firebase';
+import { app } from './firebase'; // Firebase 初期化ファイル
+
+// ── ここが抜けると地図が真っ白になるので、必ず書いてください ──
+mapboxgl.accessToken = 'pk.eyJ1IjoibnNvdG8iLCJhIjoiY21iaThvYTM0MDNrazJsczg2azNpNHY0MyJ9.lXDqV1BT_xd_FkjlOTFzGg';
 
 const db = getFirestore(app);
 const auth = getAuth(app);
-
-async function addAchievementData(achievement) {
-  try {
-    await addDoc(collection(db, 'achievements'), {
-      userId: achievement.userId,
-      nickname: achievement.nickname,
-      spotIndex: achievement.spotIndex,
-      address: achievement.address,
-      timestamp: Timestamp.fromDate(achievement.timestamp),
-    });
-    console.log('Firestoreに達成データを保存しました');
-  } catch (e) {
-    console.error('Firestore保存エラー:', e);
-  }
-}
-
-mapboxgl.accessToken = 'pk.eyJ1IjoibnNvdG8iLCJhIjoiY21iaThvYTM0MDNrazJsczg2azNpNHY0MyJ9.lXDqV1BT_xd_FkjlOTFzGg';
 
 export default function Map() {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const userMarkerRef = useRef(null);
-  const [pins, setPins] = useState([]);
-  const [completedSpots, setCompletedSpots] = useState([]);
+  const [pins, setPins] = useState([]); // CSV から読み込むスポット情報
+  const [completedSpots, setCompletedSpots] = useState([]); // Firestore の達成状態
   const [photos, setPhotos] = useState({});
   const [userLocation, setUserLocation] = useState(null);
   const fileInputRef = useRef(null);
@@ -38,6 +33,23 @@ export default function Map() {
 
   const csvUrl = '/output_with_coords.csv';
 
+  // ── Firestore の「achievements」コレクションをリアルタイム購読 ──
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, 'achievements'),
+      (snapshot) => {
+        // ドキュメントID が spotIndex の文字列なので、数値に変換して配列化
+        const achievedIndices = snapshot.docs.map((docSnap) => Number(docSnap.id));
+        setCompletedSpots(achievedIndices);
+      },
+      (error) => {
+        console.error('achievements の購読エラー:', error);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // ── 写真選択ハンドラー：base64 保存＋Firestore に達成データを保存 ──
   const handlePhotoSelected = async (event) => {
     const file = event.target.files[0];
     if (!file || currentPhotoIndex === null) return;
@@ -47,42 +59,46 @@ export default function Map() {
       const base64 = reader.result;
       setPhotos((prev) => ({ ...prev, [currentPhotoIndex]: base64 }));
 
+      // まだ未達成なら Firestore に書き込む
       if (!completedSpots.includes(currentPhotoIndex)) {
-        setCompletedSpots((prev) => [...prev, currentPhotoIndex]);
-      }
-
-      const user = auth.currentUser;
-      if (!user) {
-        alert('ログインしてください');
-        return;
-      }
-
-      try {
-        await addAchievementData({
-          userId: user.uid,
-          nickname: user.displayName || '名無し',
-          spotIndex: currentPhotoIndex,
-          address: pins[currentPhotoIndex].address,
-          timestamp: new Date(),
-        });
-      } catch (error) {
-        console.error('Firestore保存エラー', error);
+        const user = auth.currentUser;
+        if (!user) {
+          alert('ログインしてください');
+          return;
+        }
+        try {
+          // ドキュメント ID を spotIndex の文字列にすることで一意に管理
+          await setDoc(doc(db, 'achievements', String(currentPhotoIndex)), {
+            achieved: true,
+            userId: user.uid,
+            nickname: user.displayName || '名無し',
+            address: pins[currentPhotoIndex].address,
+            timestamp: Timestamp.fromDate(new Date()),
+          });
+          console.log('Firestore に達成データを保存:', currentPhotoIndex);
+        } catch (error) {
+          console.error('Firestore 保存エラー:', error);
+        }
       }
     };
     reader.readAsDataURL(file);
+
+    // 同じ index で再度写真を撮れるように value をクリア
     event.target.value = '';
   };
 
+  // ── 地図初期化 + 現在地取得 + CSV 読み込み ──
   useEffect(() => {
-    if (map.current) return;
+    if (map.current) return; // 一度だけ初期化
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/streets-v12',
-      center: [139.622271, 35.905327],
+      center: [139.622271, 35.905327], // さいたま市付近
       zoom: 12,
     });
 
+    // 地図のスタイルがロードされたら日本語ラベル優先表示
     map.current.on('style.load', () => {
       map.current.getStyle().layers?.forEach((layer) => {
         if (layer.type === 'symbol' && layer.layout?.['text-field']) {
@@ -95,6 +111,7 @@ export default function Map() {
       });
     });
 
+    // 現在地を示すマーカー（矢印アイコン）
     const el = document.createElement('div');
     el.style.cssText = `
       width: 32px;
@@ -104,12 +121,12 @@ export default function Map() {
       background-repeat: no-repeat;
       transform-origin: center;
     `;
-
     userMarkerRef.current = new mapboxgl.Marker(el)
       .setLngLat([139.622271, 35.905327])
       .setPopup(new mapboxgl.Popup().setText('あなたの現在地'))
       .addTo(map.current);
 
+    // ピン位置に向けて現在地を更新（watchPosition）
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
@@ -120,19 +137,22 @@ export default function Map() {
       { enableHighAccuracy: true }
     );
 
+    // 端末の向き取得（コンパス代わり）
     const handleOrientation = (event) => {
       if (!event.alpha || !userMarkerRef.current) return;
-      const el = userMarkerRef.current.getElement();
-      el.style.transform = `rotate(${360 - event.alpha}deg)`;
+      const iconEl = userMarkerRef.current.getElement();
+      iconEl.style.transform = `rotate(${360 - event.alpha}deg)`;
     };
-
     if (window.DeviceOrientationEvent) {
       window.addEventListener('deviceorientationabsolute', handleOrientation, true);
     }
 
+    // CSV をフェッチして pins（スポット情報）を読み込む
     fetch(csvUrl)
       .then((res) => res.text())
       .then((text) => {
+        // 1行目をヘッダーとして読み飛ばす場合は slice(1) を使う、
+        // ヘッダーがない場合は slice(1) を除いてください。
         const data = text
           .trim()
           .split('\n')
@@ -142,7 +162,8 @@ export default function Map() {
             return { address, lng: parseFloat(lng), lat: parseFloat(lat) };
           });
         setPins(data);
-      });
+      })
+      .catch((err) => console.error('CSV 読み込みエラー:', err));
 
     return () => {
       navigator.geolocation.clearWatch(watchId);
@@ -150,18 +171,24 @@ export default function Map() {
     };
   }, []);
 
+  // ── あるピンをタップしてナビを開始する ──
   const startNavigation = async (destination) => {
     if (!userLocation || !map.current) {
       alert('現在地が取得できていません。');
       return;
     }
-
-    const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${userLocation[0]},${userLocation[1]};${destination[0]},${destination[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+    const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${
+      userLocation[0]
+    },${userLocation[1]};${destination[0]},${destination[1]}?geometries=geojson&access_token=${
+      mapboxgl.accessToken
+    }`;
 
     try {
       const res = await fetch(url);
       const data = await res.json();
-      if (!data.routes?.length) return alert('ルートが見つかりませんでした。');
+      if (!data.routes?.length) {
+        return alert('ルートが見つかりませんでした。');
+      }
 
       const routeGeoJSON = {
         type: 'Feature',
@@ -185,16 +212,21 @@ export default function Map() {
       routeGeoJSON.geometry.coordinates.forEach((coord) => bounds.extend(coord));
       map.current.fitBounds(bounds, { padding: 50 });
 
-      map.current?.popups?.forEach((popup) => popup.remove());
+      // すべてのポップアップを閉じる
+      document
+        .querySelectorAll('.mapboxgl-popup-close-button')
+        .forEach((btn) => btn.click());
     } catch (err) {
-      console.error('ルート取得エラー', err);
+      console.error('ルート取得エラー:', err);
       alert('ルート取得に失敗しました。');
     }
   };
 
+  // ── pins または completedSpots が更新されるたびにマーカーを再描画 ──
   useEffect(() => {
     if (!map.current || pins.length === 0) return;
 
+    // 現在地マーカー（userMarkerRef）の要素は残しつつ、他の全マーカーを削除
     document.querySelectorAll('.mapboxgl-marker').forEach((marker) => {
       if (marker !== userMarkerRef.current?.getElement()) marker.remove();
     });
@@ -202,6 +234,7 @@ export default function Map() {
     pins.forEach(({ lng, lat, address }, index) => {
       const isCompleted = completedSpots.includes(index);
 
+      // ポップアップの中身をHTMLで作成
       const popupNode = document.createElement('div');
       popupNode.innerHTML = `
         <div style="font-size: 14px;">
@@ -209,55 +242,46 @@ export default function Map() {
           ${
             isCompleted
               ? `<p style="color: green; margin: 0;">✅ 達成済み</p>
-                 <button style="margin-top: 8px; background: #ccc; color: black; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">❌ 達成を取り消す</button>`
-              : `<button style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
+                 <button id="cancel-btn" style="margin-top: 8px; background: #ccc; color: black; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">❌ 達成を取り消す</button>`
+              : `<button id="photo-btn" style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
           }
-          <button style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
+          <button id="nav-btn" style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
         </div>
       `;
 
+      // 達成済みなら「取り消し」ボタンのクリックで Firestore からドキュメントを削除
       if (isCompleted) {
-        const cancelButton = popupNode.querySelectorAll('button')[0];
-        cancelButton?.addEventListener('click', () => {
-          setCompletedSpots((prev) => prev.filter((i) => i !== index));
-          setPhotos((prev) => {
-            const newPhotos = { ...prev };
-            delete newPhotos[index];
-            return newPhotos;
-          });
-          map.current?.getCanvas().focus();
-          document.querySelector('.mapboxgl-popup-close-button')?.click();
+        const cancelButton = popupNode.querySelector('#cancel-btn');
+        cancelButton?.addEventListener('click', async () => {
+          try {
+            await deleteDoc(doc(db, 'achievements', String(index)));
+          } catch (e) {
+            console.error('達成取り消しエラー:', e);
+          }
         });
       } else {
-        popupNode.querySelector('button')?.addEventListener('click', () => {
+        // 未達成なら「写真を撮る」ボタンのクリックでカメラ起動
+        const photoButton = popupNode.querySelector('#photo-btn');
+        photoButton?.addEventListener('click', () => {
           window.takePhoto?.(index);
         });
       }
 
-      const markerColor = isCompleted ? '#ee008c' : '#00cc55';
-      new mapboxgl.Marker({ color: markerColor })
+      // ナビ開始ボタン
+      const navButton = popupNode.querySelector('#nav-btn');
+      navButton?.addEventListener('click', () => {
+        startNavigation([lng, lat]);
+      });
+
+      // マーカーを追加（未達成＝緑 / 達成済み＝ピンク）
+      new mapboxgl.Marker({ color: isCompleted ? '#ee008c' : '#00cc55' })
         .setLngLat([lng, lat])
         .setPopup(new mapboxgl.Popup({ offset: 25 }).setDOMContent(popupNode))
         .addTo(map.current);
     });
   }, [pins, completedSpots]);
 
-  useEffect(() => {
-    const savedCompleted = localStorage.getItem('completedSpots');
-    if (savedCompleted) setCompletedSpots(JSON.parse(savedCompleted));
-
-    const savedPhotos = localStorage.getItem('photos');
-    if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('completedSpots', JSON.stringify(completedSpots));
-  }, [completedSpots]);
-
-  useEffect(() => {
-    localStorage.setItem('photos', JSON.stringify(photos));
-  }, [photos]);
-
+  // ── 写真撮影トリガー用にグローバル関数を設定 ──
   useEffect(() => {
     window.takePhoto = (index) => {
       setCurrentPhotoIndex(index);
@@ -268,9 +292,10 @@ export default function Map() {
 
   return (
     <div className="relative w-full h-full rounded-xl overflow-hidden">
-      {/* map-container を親の flex-1 が支えているので h-full で画面残りすべてに広がる */}
+      {/* 地図自体のコンテナ（親コンテナが flex-1 なので、h-full で画面残り全部を埋める） */}
       <div ref={mapContainer} className="w-full h-full" />
 
+      {/* 進捗バーを地図上に重ねて表示 */}
       <div
         className="
           absolute bottom-3 left-3 right-3
@@ -290,7 +315,9 @@ export default function Map() {
                 className="h-full bg-green-500 transition-all duration-300"
                 style={{
                   width: `${
-                    pins.length ? (completedSpots.length / pins.length) * 100 : 0
+                    pins.length
+                      ? (completedSpots.length / pins.length) * 100
+                      : 0
                   }%`,
                 }}
               />
@@ -305,6 +332,7 @@ export default function Map() {
         </div>
       </div>
 
+      {/* 隠しファイル入力（写真撮影用） */}
       <input
         ref={fileInputRef}
         type="file"
