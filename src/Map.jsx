@@ -12,8 +12,28 @@ export default function Map() {
   const [completedSpots, setCompletedSpots] = useState([]);
   const [photos, setPhotos] = useState({});
   const [userLocation, setUserLocation] = useState(null);
+  const fileInputRef = useRef(null);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(null);
 
   const csvUrl = '/output_with_coords.csv';
+
+  const handlePhotoSelected = (event) => {
+  const file = event.target.files[0];
+  if (!file || currentPhotoIndex === null) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64 = reader.result;
+    setPhotos((prev) => ({ ...prev, [currentPhotoIndex]: base64 }));
+    if (!completedSpots.includes(currentPhotoIndex)) {
+      setCompletedSpots(prev => [...prev, currentPhotoIndex]);
+    }
+  };
+  reader.readAsDataURL(file);
+
+  event.target.value = '';
+};
+
 
   // 地図初期化 + 現在地ウォッチ + 向き取得 + ピン読込
   useEffect(() => {
@@ -192,6 +212,16 @@ export default function Map() {
     localStorage.setItem('photos', JSON.stringify(photos));
   }, [photos]);
 
+  useEffect(() => {
+  window.takePhoto = (index) => {
+    setCurrentPhotoIndex(index);
+    fileInputRef.current?.click(); // カメラ起動
+  };
+
+  return () => delete window.takePhoto;
+}, []);
+
+
   return (
     <div className="relative w-full h-[500px] rounded-xl overflow-hidden">
       <div ref={mapContainer} className="w-full h-full" />
@@ -220,6 +250,15 @@ export default function Map() {
           {pins.length ? Math.round((completedSpots.length / pins.length) * 100) : 0}%
         </div>
       </div>
+      <input
+  ref={fileInputRef}
+  type="file"
+  accept="image/*"
+  capture="environment"
+  style={{ display: 'none' }}
+  onChange={handlePhotoSelected}
+/>
+
     </div>
   );
 }
