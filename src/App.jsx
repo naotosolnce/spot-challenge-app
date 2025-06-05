@@ -1,16 +1,17 @@
 // src/App.jsx
-import React from 'react';
-import Auth from './Auth';
-import Map from './Map';
+import React from "react";
+import Auth from "./Auth";
+import Map from "./Map";
 
-function App() {
-  console.log('✅ App loaded');
+export default function App() {
   return (
-    <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
-      <Auth />   {/* ここでログインUIを表示 */}
-      <Map />    {/* Map があっても Auth が常に上に表示される */}
+    <div className="flex flex-col h-screen">
+      <div className="flex-none">
+        <Auth />
+      </div>
+      <div className="flex-1">
+        <Map />
+      </div>
     </div>
   );
 }
-
-export default App;
