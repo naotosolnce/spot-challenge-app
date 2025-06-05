@@ -2,6 +2,33 @@ import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
+// 既存のimportの少し下あたりに追加
+
+import { getFirestore, collection, addDoc, Timestamp } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+
+// Firebase初期化済みのappがあるなら
+import { app } from './firebase';  // Firebase初期化ファイルのパスに合わせて変えてください
+
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+async function addAchievementData(achievement) {
+  try {
+    await addDoc(collection(db, 'achievements'), {
+      userId: achievement.userId,
+      nickname: achievement.nickname,
+      spotIndex: achievement.spotIndex,
+      address: achievement.address,
+      timestamp: Timestamp.fromDate(achievement.timestamp),
+    });
+    console.log('Firestoreに達成データを保存しました');
+  } catch (e) {
+    console.error('Firestore保存エラー:', e);
+  }
+}
+
+
 mapboxgl.accessToken = 'pk.eyJ1IjoibnNvdG8iLCJhIjoiY21iaThvYTM0MDNrazJsczg2azNpNHY0MyJ9.lXDqV1BT_xd_FkjlOTFzGg';
 
 export default function Map() {
@@ -17,16 +44,36 @@ export default function Map() {
 
   const csvUrl = '/output_with_coords.csv';
 
-  const handlePhotoSelected = (event) => {
+  const handlePhotoSelected = async (event) => {
   const file = event.target.files[0];
   if (!file || currentPhotoIndex === null) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     const base64 = reader.result;
     setPhotos((prev) => ({ ...prev, [currentPhotoIndex]: base64 }));
+
     if (!completedSpots.includes(currentPhotoIndex)) {
       setCompletedSpots(prev => [...prev, currentPhotoIndex]);
+    }
+
+    // ここでFirestoreにデータ保存
+    const user = auth.currentUser;
+    if (!user) {
+      alert('ログインしてください');
+      return;
+    }
+
+    try {
+      await addAchievementData({
+        userId: user.uid,
+        nickname: user.displayName || '名無し',
+        spotIndex: currentPhotoIndex,
+        address: pins[currentPhotoIndex].address,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      console.error('Firestore保存エラー', error);
     }
   };
   reader.readAsDataURL(file);
