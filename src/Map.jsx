@@ -8,18 +8,17 @@ export default function Map() {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const userMarkerRef = useRef(null);
-
   const [pins, setPins] = useState([]);
   const [completedSpots, setCompletedSpots] = useState([]);
   const [photos, setPhotos] = useState({});
-  const [userLocation, setUserLocation] = useState(null); // ← 追加
+  const [userLocation, setUserLocation] = useState(null);
 
   const csvUrl = '/output_with_coords.csv';
 
+  // 地図初期化 + 現在地ウォッチ + 向き取得 + ピン読込
   useEffect(() => {
     if (map.current) return;
 
-    // マップ初期化
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/streets-v12',
@@ -28,7 +27,7 @@ export default function Map() {
     });
 
     map.current.on('style.load', () => {
-      map.current.getStyle().layers.forEach(layer => {
+      map.current.getStyle().layers?.forEach(layer => {
         if (layer.type === 'symbol' && layer.layout?.['text-field']) {
           map.current.setLayoutProperty(layer.id, 'text-field', [
             'coalesce',
@@ -39,64 +38,45 @@ export default function Map() {
       });
     });
 
-    // ユーザーマーカーの初期作成
     const el = document.createElement('div');
-    el.style.width = '32px';
-    el.style.height = '32px';
-    el.style.backgroundImage = 'url(/arrow.svg)';
-    el.style.backgroundSize = 'contain';
-    el.style.backgroundRepeat = 'no-repeat';
-    el.style.transformOrigin = 'center';
+    el.style.cssText = `
+      width: 32px;
+      height: 32px;
+      background-image: url(/arrow.svg);
+      background-size: contain;
+      background-repeat: no-repeat;
+      transform-origin: center;
+    `;
 
     userMarkerRef.current = new mapboxgl.Marker(el)
       .setLngLat([139.622271, 35.905327])
       .setPopup(new mapboxgl.Popup().setText('あなたの現在地'))
       .addTo(map.current);
 
-    // 位置情報監視
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        setUserLocation([longitude, latitude]); // 追加
-
-        if (!userMarkerRef.current) {
-          const el = document.createElement('div');
-          el.style.width = '32px';
-          el.style.height = '32px';
-          el.style.backgroundImage = 'url(/arrow.svg)';
-          el.style.backgroundSize = 'contain';
-          el.style.backgroundRepeat = 'no-repeat';
-          el.style.transformOrigin = 'center';
-
-          userMarkerRef.current = new mapboxgl.Marker(el)
-            .setPopup(new mapboxgl.Popup().setText('あなたの現在地'))
-            .addTo(map.current);
-        }
-        userMarkerRef.current.setLngLat([longitude, latitude]);
+        setUserLocation([longitude, latitude]);
+        userMarkerRef.current?.setLngLat([longitude, latitude]);
       },
       (err) => console.warn('位置取得エラー:', err),
       { enableHighAccuracy: true }
     );
 
-    // 端末の向きで矢印回転
     const handleOrientation = (event) => {
-      const alpha = event.alpha;
-      if (userMarkerRef.current) {
-        const el = userMarkerRef.current.getElement();
-        el.style.transform = `rotate(${360 - alpha}deg)`;
-      }
+      if (!event.alpha || !userMarkerRef.current) return;
+      const el = userMarkerRef.current.getElement();
+      el.style.transform = `rotate(${360 - event.alpha}deg)`;
     };
 
     if (window.DeviceOrientationEvent) {
       window.addEventListener('deviceorientationabsolute', handleOrientation, true);
     }
 
-    // CSVからピン読み込み
     fetch(csvUrl)
       .then(res => res.text())
       .then(text => {
-        const lines = text.trim().split('\n');
-        const data = lines.slice(1).map(line => {
+        const data = text.trim().split('\n').slice(1).map(line => {
           const [address, lng, lat] = line.split(',');
           return { address, lng: parseFloat(lng), lat: parseFloat(lat) };
         });
@@ -109,10 +89,9 @@ export default function Map() {
     };
   }, []);
 
-  // ルート描画用関数をuseRefで保持（mapインスタンスを使うので）
   const startNavigation = async (destination) => {
-    if (!userLocation) {
-      alert('現在地が取得できていません。少し待ってからもう一度試してください。');
+    if (!userLocation || !map.current) {
+      alert('現在地が取得できていません。');
       return;
     }
 
@@ -121,11 +100,7 @@ export default function Map() {
     try {
       const res = await fetch(url);
       const data = await res.json();
-
-      if (!data.routes || data.routes.length === 0) {
-        alert('ルートが見つかりませんでした。');
-        return;
-      }
+      if (!data.routes?.length) return alert('ルートが見つかりませんでした。');
 
       const routeGeoJSON = {
         type: 'Feature',
@@ -139,19 +114,9 @@ export default function Map() {
         map.current.addLayer({
           id: 'route',
           type: 'line',
-          source: {
-            type: 'geojson',
-            data: routeGeoJSON,
-          },
-          layout: {
-            'line-join': 'round',
-            'line-cap': 'round',
-          },
-          paint: {
-            'line-color': '#3b9ddd',
-            'line-width': 6,
-            'line-opacity': 0.8,
-          },
+          source: { type: 'geojson', data: routeGeoJSON },
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#3b9ddd', 'line-width': 6, 'line-opacity': 0.8 },
         });
       }
 
@@ -159,21 +124,18 @@ export default function Map() {
       routeGeoJSON.geometry.coordinates.forEach(coord => bounds.extend(coord));
       map.current.fitBounds(bounds, { padding: 50 });
 
-    } catch (error) {
-      console.error('ルート取得エラー', error);
+      map.current?.popups?.forEach(popup => popup.remove()); // 🔧 ポップアップを閉じる
+    } catch (err) {
+      console.error('ルート取得エラー', err);
       alert('ルート取得に失敗しました。');
     }
   };
 
-  // ピン描画（ユーザーマーカーは消さない）
   useEffect(() => {
     if (!map.current || pins.length === 0) return;
 
-    // ユーザーマーカー以外を削除
     document.querySelectorAll('.mapboxgl-marker').forEach(marker => {
-      if (marker !== userMarkerRef.current?.getElement()) {
-        marker.remove();
-      }
+      if (marker !== userMarkerRef.current?.getElement()) marker.remove();
     });
 
     pins.forEach(({ lng, lat, address }, index) => {
@@ -181,48 +143,30 @@ export default function Map() {
 
       const popupNode = document.createElement('div');
       popupNode.innerHTML = `
-        <div style="font-size: 14px; line-height: 1.4;">
+        <div style="font-size: 14px;">
           <h3 style="margin: 0 0 8px 0; font-size: 16px;">${address}</h3>
           ${
             isCompleted
               ? '<p style="color: green; margin: 0;">✅ 達成済み</p>'
-              : `<button
-                  style="
-                    background: #ff6b6b;
-                    color: white;
-                    border: none;
-                    padding: 8px 16px;
-                    border-radius: 8px;
-                    font-size: 14px;
-                    width: 100%;
-                    cursor: pointer;
-                  ">📸 写真を撮る</button>`
+              : `<button style="background: #ff6b6b; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 14px; width: 100%; cursor: pointer;">📸 写真を撮る</button>`
           }
-          <button
-            style="
-              margin-top: 8px;
-              background: #0070f3;
-              color: white;
-              border: none;
-              padding: 6px 12px;
-              border-radius: 6px;
-              font-size: 14px;
-              width: 100%;
-              cursor: pointer;
-            "
-          >🧭 ナビ開始</button>
+          <button style="margin-top: 8px; background: #0070f3; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 100%; cursor: pointer;">🧭 ナビ開始</button>
         </div>
       `;
 
       if (!isCompleted) {
-        popupNode.querySelector('button').addEventListener('click', () => {
-          window.takePhoto && window.takePhoto(index);
+        popupNode.querySelector('button')?.addEventListener('click', () => {
+          window.takePhoto?.(index);
         });
       }
 
-      // ナビ開始ボタンは常に2つ目のbuttonになるのでこちらにイベントを登録
-      popupNode.querySelectorAll('button')[isCompleted ? 0 : 1].addEventListener('click', () => {
+      const navButton = popupNode.querySelectorAll('button')[isCompleted ? 0 : 1];
+      navButton?.addEventListener('click', () => {
         startNavigation([lng, lat]);
+        setTimeout(() => {
+          map.current?.getCanvas().focus();
+          document.querySelector('.mapboxgl-popup-close-button')?.click(); // 強制的にポップアップを閉じる
+        }, 100);
       });
 
       new mapboxgl.Marker({ color: isCompleted ? '#ee008c' : '#00cc55' })
@@ -232,7 +176,6 @@ export default function Map() {
     });
   }, [pins, completedSpots]);
 
-  // 完了済みスポットと写真のローカル保存読み込み
   useEffect(() => {
     const savedCompleted = localStorage.getItem('completedSpots');
     if (savedCompleted) setCompletedSpots(JSON.parse(savedCompleted));
@@ -241,7 +184,6 @@ export default function Map() {
     if (savedPhotos) setPhotos(JSON.parse(savedPhotos));
   }, []);
 
-  // ローカル保存の更新
   useEffect(() => {
     localStorage.setItem('completedSpots', JSON.stringify(completedSpots));
   }, [completedSpots]);
@@ -254,7 +196,6 @@ export default function Map() {
     <div className="relative w-full h-[500px] rounded-xl overflow-hidden">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* コンパクトな進捗カード */}
       <div className="
         absolute bottom-3 left-3 right-3
         bg-white/90 backdrop-blur-sm
@@ -270,13 +211,13 @@ export default function Map() {
             <div className="w-32 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className="h-full bg-green-500 transition-all duration-300"
-                style={{ width: `${pins.length > 0 ? (completedSpots.length / pins.length) * 100 : 0}%` }}
+                style={{ width: `${pins.length ? (completedSpots.length / pins.length) * 100 : 0}%` }}
               />
             </div>
           </div>
         </div>
         <div className="text-sm font-bold text-green-600">
-          {pins.length > 0 ? Math.round((completedSpots.length / pins.length) * 100) : 0}%
+          {pins.length ? Math.round((completedSpots.length / pins.length) * 100) : 0}%
         </div>
       </div>
     </div>
